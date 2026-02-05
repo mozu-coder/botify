@@ -69,9 +69,9 @@ class Bot(Base):
     followups = Column(JSON, default=list)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
     owner = relationship("User", back_populates="bots")
     plans = relationship("Plan", back_populates="bot", cascade="all, delete-orphan")
+    leads = relationship("Lead", cascade="all, delete-orphan")
 
 
 class Plan(Base):
@@ -159,3 +159,4 @@ class Lead(Base):
     bot_id = Column(BigInteger, ForeignKey("bots.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_remarketing_at = Column(DateTime(timezone=True), nullable=True)
+    bot = relationship("Bot", back_populates="leads")
