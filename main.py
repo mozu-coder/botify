@@ -1,10 +1,16 @@
 import uvicorn
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+from src.runner.scheduler import check_abandoned_carts
+from src.runner.router import runner_router
 
 from src.core.config import settings
 from src.database.base import engine, Base
+
 from src.bot.handlers.start import start_command
 from src.bot.handlers.creation_wizard import creation_handler
 from src.bot.handlers.plan_wizard import plan_wizard_handler
@@ -17,31 +23,42 @@ from src.bot.handlers.wallet import wallet_handlers
 from src.bot.handlers.support import support_handler
 from src.bot.handlers.admin_withdrawal import admin_handlers
 
-from src.runner.router import runner_router
+scheduler = AsyncIOScheduler()
 
-"""
-Gerencia o ciclo de vida da aplicação, incluindo a inicialização do banco de dados,
-configuração dos handlers do bot e definição do método de atualização (Webhook ou Polling).
-"""
+
 async def lifespan(app: FastAPI):
+    """
+    Gerencia o ciclo de vida da aplicação (Startup e Shutdown).
+
+    Responsabilidades:
+    - Inicializar a conexão com o banco de dados e criar tabelas.
+    - Iniciar o agendador de tarefas (Scheduler) para verificação de follow-ups.
+    - Construir a aplicação do bot e registrar todos os handlers e wizards.
+    - Definir o modo de operação do bot (Webhook para produção ou Polling para desenvolvimento).
+    - Encerrar conexões e parar serviços ao desligar a aplicação.
+    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    
+
+    scheduler.add_job(check_abandoned_carts, "interval", seconds=60)
+    scheduler.start()
+    print("✅ Scheduler de Follow-up Ativo!")
+
     bot_app = Application.builder().token(settings.TELEGRAM_BOT_TOKEN).build()
-    
+
     bot_app.add_handler(creation_handler)
     bot_app.add_handler(plan_wizard_handler)
     bot_app.add_handler(plan_edit_conversation)
     bot_app.add_handler(change_group_handler)
     bot_app.add_handler(settings_wizard_handler)
     bot_app.add_handler(followup_wizard_handler)
-    
+
     for handler in wallet_handlers:
         bot_app.add_handler(handler)
 
     for handler in plan_action_handlers:
         bot_app.add_handler(handler)
-        
+
     for handler in bot_action_handlers:
         bot_app.add_handler(handler)
 
@@ -50,14 +67,13 @@ async def lifespan(app: FastAPI):
 
     for handler in admin_handlers:
         bot_app.add_handler(handler)
-    
-    bot_app.add_handler(support_handler)
 
+    bot_app.add_handler(support_handler)
     bot_app.add_handler(CommandHandler("start", start_command))
     bot_app.add_handler(CallbackQueryHandler(start_command, pattern="^back_to_main$"))
-    
+
     await bot_app.initialize()
-    
+
     if "localhost" in settings.WEBHOOK_URL or "127.0.0.1" in settings.WEBHOOK_URL:
         await bot_app.bot.delete_webhook()
         await bot_app.start()
@@ -68,37 +84,47 @@ async def lifespan(app: FastAPI):
         await bot_app.bot.set_webhook(url=webhook_url)
         await bot_app.start()
         print(f"🚀 Modo PROD: Webhook definido em {webhook_url}")
-    
+
     app.state.bot_app = bot_app
-    
+
     yield
-    
+
+    print("🛑 Desligando Sistema...")
+
+    if scheduler.running:
+        scheduler.shutdown()
+
     if bot_app.updater.running:
         await bot_app.updater.stop()
     await bot_app.stop()
     await bot_app.shutdown()
 
-app = FastAPI(lifespan=lifespan)
 
+app = FastAPI(lifespan=lifespan)
 app.include_router(runner_router)
 
-"""
-Verifica o status da API.
-"""
+
 @app.get("/")
 async def health_check():
-    return {"status": "ok"}
+    """
+    Endpoint de verificação de saúde da API.
+    Retorna o status operacional do serviço.
+    """
+    return {"status": "ok", "system": "Botify Online"}
 
-"""
-Recebe as atualizações do Telegram via Webhook.
-"""
+
 @app.post("/telegram-webhook")
 async def telegram_webhook(request: Request):
+    """
+    Recebe e processa as atualizações enviadas pelo Telegram (Webhook).
+    Recupera a instância do bot do estado da aplicação e processa o update JSON.
+    """
     bot_app = request.app.state.bot_app
     update_data = await request.json()
     update = Update.de_json(update_data, bot_app.bot)
     await bot_app.process_update(update)
     return {"ok": True}
+
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=settings.PORT, reload=True)
