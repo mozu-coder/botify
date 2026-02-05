@@ -2,63 +2,69 @@ from telegram import Update, InlineKeyboardMarkup, Message
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest
 
+
 class ChatManager:
+    """Gerenciador de mensagens do bot, mantendo apenas uma mensagem visível por vez."""
+
     @staticmethod
     async def clear_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Tenta apagar a mensagem que o usuário acabou de enviar."""
+        """Remove a mensagem enviada pelo usuário, se possível."""
         if update.message:
             try:
                 await update.message.delete()
             except Exception:
-                pass # Se não der pra apagar (ex: bot sem adm), segue a vida
+                pass
 
     @staticmethod
-    async def render_view(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup: InlineKeyboardMarkup = None):
+    async def render_view(
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        text: str,
+        reply_markup: InlineKeyboardMarkup = None,
+    ):
         """
-        Inteligência central:
-        1. Se for clique em botão -> Edita a mensagem.
-        2. Se for comando novo -> Apaga o anterior do bot e manda um novo.
-        3. Sempre garante que só exista UMA mensagem do bot na tela.
+        Renderiza uma view garantindo que apenas uma mensagem do bot fique visível.
+
+        Comportamento:
+        - Se for callback (clique em botão): edita a mensagem existente
+        - Se for novo comando ou falha na edição: apaga a anterior e envia nova
+
+        Args:
+            update: Objeto de atualização do Telegram
+            context: Contexto da conversação
+            text: Texto da mensagem
+            reply_markup: Teclado inline (opcional)
         """
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-        
-        # Tenta pegar o ID da última mensagem do bot salva no contexto
-        last_msg_id = context.user_data.get('last_bot_msg_id')
 
-        # Cenário 1: Callback (Clique no botão)
+        last_msg_id = context.user_data.get("last_bot_msg_id")
+
+        # Caso 1: Callback (edição)
         if update.callback_query:
             try:
-                # Tenta editar
                 await update.callback_query.edit_message_text(
-                    text=text, 
-                    reply_markup=reply_markup, 
-                    parse_mode='HTML'
+                    text=text, reply_markup=reply_markup, parse_mode="HTML"
                 )
-                # Atualiza o ID caso tenha mudado (raro em edit, mas seguro)
-                context.user_data['last_bot_msg_id'] = update.callback_query.message.message_id
+                context.user_data["last_bot_msg_id"] = (
+                    update.callback_query.message.message_id
+                )
                 return
             except BadRequest as e:
-                # Se der erro "Message is not modified", ignoramos
                 if "Message is not modified" in str(e):
                     return
-                # Se a mensagem original foi apagada, cai no Cenário 2
 
-        # Cenário 2: Nova mensagem ou Falha na edição
-        # Primeiro, apaga a mensagem antiga do bot se ela existir visualmente
+        # Caso 2: Nova mensagem
         if last_msg_id:
             try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=last_msg_id)
+                await context.bot.delete_message(
+                    chat_id=chat_id, message_id=last_msg_id
+                )
             except Exception:
-                pass # Mensagem já não existia
+                pass
 
-        # Envia a nova mensagem limpa
         sent_msg: Message = await context.bot.send_message(
-            chat_id=chat_id,
-            text=text,
-            reply_markup=reply_markup,
-            parse_mode='HTML'
+            chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode="HTML"
         )
-        
-        # Salva o ID para a próxima interação
-        context.user_data['last_bot_msg_id'] = sent_msg.message_id
+
+        context.user_data["last_bot_msg_id"] = sent_msg.message_id

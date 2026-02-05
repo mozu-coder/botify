@@ -3,16 +3,13 @@ from telegram.ext import ContextTypes, CallbackQueryHandler
 
 from src.utils.chat_manager import ChatManager
 from src.utils.formatters import TextUtils
-from src.bot.keyboards.menus import main_menu_keyboard
+
 
 async def view_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Exibe a central de ajuda com links úteis.
-    """
-    # Aqui você pode colocar o SEU usuário de suporte ou um canal
-    suporte_url = "https://t.me/seusere" 
-    tutorial_url = "https://google.com" # Futuramente um Notion ou Gitbook
-    
+    """Exibe a central de ajuda com links para tutoriais e suporte."""
+    suporte_url = "https://t.me/seuuser"
+    tutorial_url = "https://google.com"
+
     text = TextUtils.pad_message(
         "<b>🆘 Central de Ajuda</b>\n\n"
         "Está com dúvidas sobre como configurar seu bot ou receber pagamentos?\n\n"
@@ -22,13 +19,16 @@ async def view_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• O bot parou de responder, o que fazer?\n\n"
         "Escolha uma opção abaixo para ser atendido:"
     )
-    
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📚 Ler Tutoriais / Docs", url=tutorial_url)],
-        [InlineKeyboardButton("👨‍💻 Falar com Suporte Humano", url=suporte_url)],
-        [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="back_to_main")]
-    ])
-    
+
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📚 Ler Tutoriais / Docs", url=tutorial_url)],
+            [InlineKeyboardButton("👨‍💻 Falar com Suporte Humano", url=suporte_url)],
+            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="back_to_main")],
+        ]
+    )
+
     await ChatManager.render_view(update, context, text, kb)
+
 
 support_handler = CallbackQueryHandler(view_support, pattern="^support_view$")

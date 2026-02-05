@@ -1,6 +1,8 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+
 def main_menu_keyboard(is_admin: bool = False):
+    """Gera o teclado do menu principal da aplicação."""
     keyboard = [
         [
             InlineKeyboardButton("🚀 Criar Novo Bot", callback_data="wizard_new_bot"),
@@ -11,7 +13,7 @@ def main_menu_keyboard(is_admin: bool = False):
         ],
         [
             InlineKeyboardButton("🆘 Suporte / Ajuda", callback_data="support_view"),
-        ]
+        ],
     ]
 
     return InlineKeyboardMarkup(keyboard)

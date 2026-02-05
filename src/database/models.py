@@ -16,16 +16,19 @@ import enum
 from src.database.base import Base
 
 
-# Enums
 class TransactionType(enum.Enum):
-    SALE = "sale"  # Venda bruta
-    FEE_PLATFORM = "fee_plat"  # Taxa GGPIX
-    FEE_SERVICE = "fee_serv"  # Sua taxa (Lucro)
-    WITHDRAWAL = "withdrawal"  # Saque
-    WITHDRAWAL_FEE = "w_fee"  # Taxa do saque
+    """Tipos de transação financeira."""
+
+    SALE = "sale"
+    FEE_PLATFORM = "fee_plat"
+    FEE_SERVICE = "fee_serv"
+    WITHDRAWAL = "withdrawal"
+    WITHDRAWAL_FEE = "w_fee"
 
 
 class WithdrawalStatus(enum.Enum):
+    """Status de solicitações de saque."""
+
     PENDING = "pending"
     PROCESSING = "processing"
     PAID = "paid"
@@ -34,35 +37,36 @@ class WithdrawalStatus(enum.Enum):
 
 
 class User(Base):
+    """Usuário proprietário de bots."""
+
     __tablename__ = "users"
+
     id = Column(BigInteger, primary_key=True, index=True)
     full_name = Column(String, nullable=True)
     username = Column(String, nullable=True)
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
     bots = relationship("Bot", back_populates="owner")
 
 
 class Bot(Base):
+    """Bot gerenciado por um usuário."""
+
     __tablename__ = "bots"
+
     id = Column(BigInteger, primary_key=True, index=True)
     owner_id = Column(BigInteger, ForeignKey("users.id"))
     token = Column(String, unique=True, nullable=False)
-
     name = Column(String)
     username = Column(String)
-
     group_id = Column(BigInteger, nullable=True)
     group_name = Column(String, nullable=True)
-
     description = Column(String, default="🤖 Bem-vindo ao Bot VIP.")
-
     welcome_message = Column(String, default="Olá! Este é o canal oficial de vendas.")
     welcome_media_id = Column(String, nullable=True)
     welcome_media_type = Column(String, nullable=True)
-
     followups = Column(JSON, default=list)
-
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -71,15 +75,15 @@ class Bot(Base):
 
 
 class Plan(Base):
+    """Plano de assinatura vinculado a um bot."""
+
     __tablename__ = "plans"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     bot_id = Column(BigInteger, ForeignKey("bots.id"))
-
     name = Column(String, nullable=False)
     price = Column(Float, nullable=False)
     days = Column(Integer, nullable=False)
-
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -87,84 +91,71 @@ class Plan(Base):
 
 
 class Subscriber(Base):
-    """Cliente final que comprou o plano"""
+    """Cliente que adquiriu um plano."""
 
     __tablename__ = "subscribers"
-    id = Column(BigInteger, primary_key=True, index=True)  # ID Telegram ou CPF
+
+    id = Column(BigInteger, primary_key=True, index=True)
     name = Column(String)
-    document = Column(String, nullable=True)  # CPF
+    document = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class Subscription(Base):
-    """Vínculo de assinatura"""
+    """Vínculo entre assinante, bot e plano."""
 
     __tablename__ = "subscriptions"
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     bot_id = Column(BigInteger, ForeignKey("bots.id"))
     plan_id = Column(Integer, ForeignKey("plans.id"))
     subscriber_id = Column(BigInteger, ForeignKey("subscribers.id"))
-
     start_date = Column(DateTime(timezone=True), server_default=func.now())
-    end_date = Column(DateTime(timezone=True), nullable=True)  # Null = Vitalício
+    end_date = Column(DateTime(timezone=True), nullable=True)  # Null = vitalício
     is_active = Column(Boolean, default=True)
 
 
 class Transaction(Base):
-    """Livro Caixa (Extrato Financeiro)"""
+    """Registro de transação financeira (livro caixa)."""
 
     __tablename__ = "transactions"
+
     id = Column(Integer, primary_key=True, autoincrement=True)
-
-    user_id = Column(
-        BigInteger, ForeignKey("users.id")
-    )  # Dono do Bot (quem recebe/paga)
-    bot_id = Column(BigInteger, ForeignKey("bots.id"), nullable=True)  # Origem
-
-    external_id = Column(String, nullable=True)  # ID na GGPIX
+    user_id = Column(BigInteger, ForeignKey("users.id"))
+    bot_id = Column(BigInteger, ForeignKey("bots.id"), nullable=True)
+    external_id = Column(String, nullable=True)
     type = Column(PgEnum(TransactionType), nullable=False)
     description = Column(String)
-    amount = Column(Float, nullable=False)  # Positivo (Entrada) / Negativo (Saída)
-
+    amount = Column(Float, nullable=False)  # Positivo = entrada, negativo = saída
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     followup_sent = Column(Boolean, default=False)
 
 
 class Withdrawal(Base):
-    """Solicitações de Saque"""
+    """Solicitação de saque."""
 
     __tablename__ = "withdrawals"
+
     id = Column(Integer, primary_key=True, autoincrement=True)
-
     user_id = Column(BigInteger, ForeignKey("users.id"))
-
-    amount_requested = Column(Float, nullable=False)  # Quanto ele quer receber
-    fee_total = Column(Float, nullable=False)  # Total de taxas descontadas
-    amount_final = Column(Float, nullable=False)  # Quanto sai do saldo (amount + fee)
-
+    amount_requested = Column(Float, nullable=False)
+    fee_total = Column(Float, nullable=False)
+    amount_final = Column(Float, nullable=False)
     pix_key = Column(String, nullable=False)
     pix_type = Column(String, default="CPF")
-
     status = Column(PgEnum(WithdrawalStatus), default=WithdrawalStatus.PENDING)
-    ggpix_id = Column(String, nullable=True)  # ID da transação na GGPIX
-
+    ggpix_id = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     processed_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class Lead(Base):
-    """
-    Registra que um usuário (Subscriber) iniciou um Bot específico.
-    Usado para o sistema de Remarketing saber pra quem mandar mensagem.
-    """
+    """Registro de usuário que iniciou interação com um bot."""
 
     __tablename__ = "leads"
+
     id = Column(Integer, primary_key=True, autoincrement=True)
-
-    user_id = Column(BigInteger, ForeignKey("subscribers.id"))  # O cliente
-    bot_id = Column(BigInteger, ForeignKey("bots.id"))  # O bot que ele entrou
-
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now()
-    )  # Data do /start
+    user_id = Column(BigInteger, ForeignKey("subscribers.id"))
+    bot_id = Column(BigInteger, ForeignKey("bots.id"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_remarketing_at = Column(DateTime(timezone=True), nullable=True)

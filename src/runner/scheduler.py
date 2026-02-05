@@ -7,28 +7,26 @@ from telegram.error import Forbidden, BadRequest
 from src.database.base import AsyncSessionLocal
 from src.database.models import Transaction, Bot, TransactionType
 
-# Configuração
 logger = logging.getLogger(__name__)
-DELAY_MINUTES = 30  # Tempo de espera
+DELAY_MINUTES = 30
 
 
 async def check_abandoned_carts():
     """
-    Função que será rodada periodicamente pelo Scheduler.
+    Verifica carrinhos abandonados (vendas pendentes) e envia mensagens de recuperação.
+    Executado periodicamente pelo scheduler.
     """
     logger.info("⏰ Scheduler: Verificando carrinhos abandonados...")
 
     try:
         async with AsyncSessionLocal() as session:
-            # 1. Define tempo de corte (Ex: Agora - 30 min)
             cutoff_time = datetime.now() - timedelta(minutes=DELAY_MINUTES)
 
-            # 2. Busca vendas pendentes, antigas e sem follow-up
             query = select(Transaction).where(
                 Transaction.type == TransactionType.SALE,
-                Transaction.amount == 0,  # Pendente
+                Transaction.amount == 0,
                 Transaction.created_at < cutoff_time,
-                Transaction.followup_sent == False,  # Ainda não enviado
+                Transaction.followup_sent == False,
             )
 
             result = await session.execute(query)
@@ -40,14 +38,12 @@ async def check_abandoned_carts():
             logger.info(f"🔎 Encontradas {len(transactions)} vendas para recuperar.")
 
             for tx in transactions:
-                # Busca o bot dono dessa transação
                 bot_res = await session.execute(select(Bot).filter(Bot.id == tx.bot_id))
                 db_bot = bot_res.scalars().first()
 
                 if not db_bot or not db_bot.is_active:
                     continue
 
-                # Envia mensagem
                 try:
                     bot = TgBot(db_bot.token)
                     msg = (
@@ -61,12 +57,11 @@ async def check_abandoned_carts():
                     )
                     logger.info(f"✅ Follow-up enviado para User {tx.user_id}")
 
-                    # Marca como enviado
                     tx.followup_sent = True
 
                 except Forbidden:
                     logger.warning(f"🚫 User {tx.user_id} bloqueou o bot.")
-                    tx.followup_sent = True  # Marca pra não tentar de novo
+                    tx.followup_sent = True
                 except Exception as e:
                     logger.error(f"❌ Erro envio: {e}")
 

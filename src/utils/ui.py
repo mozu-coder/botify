@@ -1,29 +1,25 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
+
 class UI:
+    """Utilitários para feedback visual ao usuário."""
+
     @staticmethod
     async def show_toast(update: Update, message: str, alert: bool = False):
         """
-        Mostra uma notificação rápida para o usuário.
-        
+        Exibe notificação ao usuário.
+
         Args:
-            update: O objeto update do Telegram
-            message: O texto a ser exibido
-            alert: Se True, mostra um pop-up (modal) com botão OK. 
-                   Se False, mostra apenas a notificação temporária no topo.
+            update: Objeto de atualização do Telegram
+            message: Texto da notificação
+            alert: Se True, exibe modal com botão OK. Se False, toast temporário
         """
         if update.callback_query:
-            await update.callback_query.answer(
-                text=message, 
-                show_alert=alert
-            )
+            await update.callback_query.answer(text=message, show_alert=alert)
 
     @staticmethod
     async def answer_loading(update: Update):
-        """
-        Apenas para parar o 'reloginho' de carregamento do botão
-        sem mostrar mensagem nenhuma.
-        """
+        """Remove o indicador de carregamento do botão sem exibir mensagem."""
         if update.callback_query:
             await update.callback_query.answer()

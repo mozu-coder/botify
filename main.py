@@ -1,5 +1,4 @@
 import uvicorn
-from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
@@ -7,10 +6,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from src.runner.scheduler import check_abandoned_carts
 from src.runner.router import runner_router
-
 from src.core.config import settings
 from src.database.base import engine, Base
-
 from src.bot.handlers.start import start_command
 from src.bot.handlers.creation_wizard import creation_handler
 from src.bot.handlers.plan_wizard import plan_wizard_handler
@@ -23,26 +20,18 @@ from src.bot.handlers.wallet import wallet_handlers
 from src.bot.handlers.support import support_handler
 from src.bot.handlers.admin_withdrawal import admin_handlers
 
+
 scheduler = AsyncIOScheduler()
 
 
 async def lifespan(app: FastAPI):
     """
-    Gerencia o ciclo de vida da aplicação (Startup e Shutdown).
-
-    Responsabilidades:
-    - Inicializar a conexão com o banco de dados e criar tabelas.
-    - Iniciar o agendador de tarefas (Scheduler) para verificação de follow-ups.
-    - Construir a aplicação do bot e registrar todos os handlers e wizards.
-    - Definir o modo de operação do bot (Webhook para produção ou Polling para desenvolvimento).
-    - Encerrar conexões e parar serviços ao desligar a aplicação.
+    Gerencia o ciclo de vida da aplicação FastAPI.
+    Inicializa o banco de dados, configura handlers do Telegram e define
+    o método de atualização (Webhook para produção ou Polling para desenvolvimento).
     """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-
-    scheduler.add_job(check_abandoned_carts, "interval", seconds=60)
-    scheduler.start()
-    print("✅ Scheduler de Follow-up Ativo!")
 
     bot_app = Application.builder().token(settings.TELEGRAM_BOT_TOKEN).build()
 
@@ -89,11 +78,6 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    print("🛑 Desligando Sistema...")
-
-    if scheduler.running:
-        scheduler.shutdown()
-
     if bot_app.updater.running:
         await bot_app.updater.stop()
     await bot_app.stop()
@@ -106,19 +90,13 @@ app.include_router(runner_router)
 
 @app.get("/")
 async def health_check():
-    """
-    Endpoint de verificação de saúde da API.
-    Retorna o status operacional do serviço.
-    """
-    return {"status": "ok", "system": "Botify Online"}
+    """Verifica o status da API."""
+    return {"status": "ok"}
 
 
 @app.post("/telegram-webhook")
 async def telegram_webhook(request: Request):
-    """
-    Recebe e processa as atualizações enviadas pelo Telegram (Webhook).
-    Recupera a instância do bot do estado da aplicação e processa o update JSON.
-    """
+    """Recebe e processa atualizações do Telegram via Webhook."""
     bot_app = request.app.state.bot_app
     update_data = await request.json()
     update = Update.de_json(update_data, bot_app.bot)
