@@ -1,5 +1,6 @@
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, Bot as TgBot
 from sqlalchemy.future import select
+from datetime import datetime
 from src.database.base import AsyncSessionLocal
 from src.database.models import (
     Bot,
@@ -18,35 +19,63 @@ class RunnerLogic:
     """Processa interações dos usuários finais com os bots gerenciados."""
 
     @staticmethod
+    async def register_interaction(session, user, bot_id):
+        """
+        Salva ou atualiza o usuário como um Lead na tabela.
+        Atualiza a data da última interação para reiniciar o contador do follow-up.
+        """
+        # 1. Garante que existe na tabela de Subscribers (Usuários Globais)
+        result = await session.execute(
+            select(Subscriber).filter(Subscriber.id == user.id)
+        )
+        subscriber = result.scalars().first()
+        if not subscriber:
+            subscriber = Subscriber(
+                id=user.id, name=user.full_name, username=user.username
+            )
+            session.add(subscriber)
+            await session.flush()  # Salva para garantir que o ID exista
+
+        # 2. Gerencia o Lead (Específico deste Bot)
+        lead_res = await session.execute(
+            select(Lead).filter(Lead.user_id == user.id, Lead.bot_id == bot_id)
+        )
+        lead = lead_res.scalars().first()
+
+        if lead:
+            # Se lead existe e ainda não comprou, atualiza o horário que ele mexeu
+            # Se já recebeu follow-up, não atualizamos para não resetar ciclo (opcional)
+            if not lead.is_converted:
+                lead.last_interaction = datetime.now()
+                # Opcional: Se quiser dar uma segunda chance de follow-up:
+                # lead.followup_sent = False
+        else:
+            # Novo Lead
+            lead = Lead(
+                user_id=user.id,
+                bot_id=bot_id,
+                first_name=user.first_name,
+                username=user.username,
+                last_interaction=datetime.now(),
+                followup_sent=False,
+                is_converted=False,
+            )
+            session.add(lead)
+
+    @staticmethod
     async def process_start(update: Update, bot: TgBot, db_bot: Bot):
         """
         Processa o comando /start do bot filho.
-        Registra o subscriber e lead, envia mensagem de boas-vindas e exibe planos.
         """
         user = update.effective_user
         chat_id = update.effective_chat.id
 
+        # Registra interação (Lead)
         async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(Subscriber).filter(Subscriber.id == user.id)
-            )
-            subscriber = result.scalars().first()
-            if not subscriber:
-                subscriber = Subscriber(id=user.id, name=user.full_name)
-                session.add(subscriber)
-                await session.flush()
-
-            lead_res = await session.execute(
-                select(Lead).filter(Lead.user_id == user.id, Lead.bot_id == db_bot.id)
-            )
-            lead = lead_res.scalars().first()
-
-            if not lead:
-                lead = Lead(user_id=user.id, bot_id=db_bot.id)
-                session.add(lead)
-
+            await RunnerLogic.register_interaction(session, user, db_bot.id)
             await session.commit()
 
+        # Lógica de Mídia de Boas-vindas
         if db_bot.welcome_media_id:
             caption = db_bot.welcome_message or ""
             try:
@@ -111,12 +140,15 @@ class RunnerLogic:
     ):
         """
         Processa a compra de um plano gerando cobrança PIX.
-        Cria transação pendente com valor zero até confirmação do pagamento.
+        Também atualiza a interação do Lead.
         """
         plan_id = int(callback_data.split("_")[2])
         user = update.effective_user
 
         async with AsyncSessionLocal() as session:
+            # Atualiza interação pois ele clicou num botão
+            await RunnerLogic.register_interaction(session, user, db_bot.id)
+
             result = await session.execute(select(Plan).filter(Plan.id == plan_id))
             plan = result.scalars().first()
 

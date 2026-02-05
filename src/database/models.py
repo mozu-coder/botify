@@ -71,7 +71,7 @@ class Bot(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     owner = relationship("User", back_populates="bots")
     plans = relationship("Plan", back_populates="bot", cascade="all, delete-orphan")
-    leads = relationship("Lead", cascade="all, delete-orphan")
+    leads = relationship("Lead", back_populates="bot", cascade="all, delete-orphan")
 
 
 class Plan(Base):
@@ -91,12 +91,13 @@ class Plan(Base):
 
 
 class Subscriber(Base):
-    """Cliente que adquiriu um plano."""
+    """Cliente (ou Lead) que interagiu com o bot."""
 
     __tablename__ = "subscribers"
 
     id = Column(BigInteger, primary_key=True, index=True)
     name = Column(String)
+    username = Column(String, nullable=True)
     document = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -150,13 +151,27 @@ class Withdrawal(Base):
 
 
 class Lead(Base):
-    """Registro de usuário que iniciou interação com um bot."""
+    """
+    Rastreia visitantes e leads em potencial.
+    Usado para enviar mensagens de recuperação (remarketing).
+    """
 
     __tablename__ = "leads"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(BigInteger, ForeignKey("subscribers.id"))
     bot_id = Column(BigInteger, ForeignKey("bots.id"))
+
+    first_name = Column(String, nullable=True)
+    username = Column(String, nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    last_remarketing_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Controle de Follow-up
+    last_interaction = Column(DateTime(timezone=True), server_default=func.now())
+    followup_sent = Column(Boolean, default=False)
+    is_converted = Column(
+        Boolean, default=False
+    )  # True se já comprou (não enviar mais msg)
+
     bot = relationship("Bot", back_populates="leads")

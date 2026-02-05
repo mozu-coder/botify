@@ -5,7 +5,14 @@ from sqlalchemy.future import select
 from datetime import datetime, timedelta
 
 from src.database.base import AsyncSessionLocal
-from src.database.models import Bot, Transaction, TransactionType, Subscription, Plan
+from src.database.models import (
+    Bot,
+    Transaction,
+    TransactionType,
+    Subscription,
+    Plan,
+    Lead,
+)
 from src.runner.logic import RunnerLogic
 from src.services.payment_service import PaymentService
 from src.core.config import settings
@@ -60,7 +67,7 @@ async def runner_webhook(
 async def payment_webhook(request: Request):
     """
     Processa confirmações de pagamento da GGPIX.
-    Atualiza transações, calcula taxas e libera acesso ao grupo VIP.
+    Atualiza transações, calcula taxas, libera acesso E MARCA LEAD COMO CONVERTIDO.
     """
     raw_body = await request.body()
     signature = request.headers.get("X-Webhook-Signature", "")
@@ -134,6 +141,18 @@ async def payment_webhook(request: Request):
                     end_date=end_date,
                 )
                 session.add(sub)
+
+                # --- NOVO: MARCA O LEAD COMO CONVERTIDO ---
+                # Isso impede que o Scheduler mande mensagem de "volte aqui"
+                lead_res = await session.execute(
+                    select(Lead).filter(
+                        Lead.user_id == subscriber_id, Lead.bot_id == bot.id
+                    )
+                )
+                lead = lead_res.scalars().first()
+                if lead:
+                    lead.is_converted = True
+                # ------------------------------------------
 
                 try:
                     tg_bot = TgBot(bot.token)

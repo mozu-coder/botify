@@ -69,3 +69,87 @@ async def check_abandoned_carts():
 
     except Exception as e:
         logger.error(f"❌ Erro fatal no Scheduler: {e}")
+
+
+import logging
+from datetime import datetime, timedelta
+from sqlalchemy.future import select
+from telegram import Bot as TgBot
+from telegram.error import Forbidden, BadRequest
+
+from src.database.base import AsyncSessionLocal
+from src.database.models import Lead, Bot
+
+logger = logging.getLogger(__name__)
+DELAY_MINUTES = 30  # Tempo sem interação antes de mandar a mensagem
+
+
+async def check_abandoned_carts():
+    """
+    Verifica LEADS (visitantes) que interagiram mas não converteram,
+    e envia mensagem de recuperação.
+    """
+    logger.info("⏰ Scheduler: Verificando leads pendentes...")
+
+    try:
+        async with AsyncSessionLocal() as session:
+            cutoff_time = datetime.now() - timedelta(minutes=DELAY_MINUTES)
+
+            # Busca leads que:
+            # 1. Mexeram no bot antes do tempo de corte
+            # 2. Ainda não compraram (is_converted = False)
+            # 3. Ainda não receberam follow-up
+            query = select(Lead).where(
+                Lead.last_interaction < cutoff_time,
+                Lead.is_converted == False,
+                Lead.followup_sent == False,
+            )
+
+            result = await session.execute(query)
+            leads = result.scalars().all()
+
+            if not leads:
+                return
+
+            logger.info(f"🔎 Encontrados {len(leads)} leads para recuperar.")
+
+            for lead in leads:
+                bot_res = await session.execute(
+                    select(Bot).filter(Bot.id == lead.bot_id)
+                )
+                db_bot = bot_res.scalars().first()
+
+                if not db_bot or not db_bot.is_active:
+                    continue
+
+                try:
+                    bot = TgBot(db_bot.token)
+
+                    first_name = lead.first_name or "Visitante"
+
+                    msg = (
+                        f"Olá, {first_name}! 👋\n\n"
+                        "Vi que você acessou nosso bot mas ainda não finalizou sua entrada no <b>Grupo VIP</b>.\n\n"
+                        "🤔 <b>Ficou com alguma dúvida?</b>\n"
+                        "As vagas são limitadas e o conteúdo exclusivo já está rolando lá dentro.\n\n"
+                        "👇 <b>Clique abaixo para ver os planos novamente:</b>\n"
+                        "/start"
+                    )
+
+                    await bot.send_message(
+                        chat_id=lead.user_id, text=msg, parse_mode="HTML"
+                    )
+                    logger.info(f"✅ Follow-up enviado para Lead {lead.user_id}")
+
+                    lead.followup_sent = True
+
+                except Forbidden:
+                    logger.warning(f"🚫 User {lead.user_id} bloqueou o bot.")
+                    lead.followup_sent = True
+                except Exception as e:
+                    logger.error(f"❌ Erro envio: {e}")
+
+            await session.commit()
+
+    except Exception as e:
+        logger.error(f"❌ Erro fatal no Scheduler: {e}")
